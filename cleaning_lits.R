@@ -5,29 +5,13 @@ library(readxl)
 
 ##################
 
+dir <- getwd()
+
+setwd(dir)
+
 ##Data cleaning
 
-lits_ii <- read.csv("/Users/roland/Desktop/singer 2018 replicate and extend/main/lits_ii.csv")
-
-#gdp_imf data
-imf_data <- read_excel("/Users/roland/Desktop/singer 2018 replicate and extend/main/imf_gdp_imf.xls")
-imf_data[183, 1] <- "Turkey"
-imf_data[145, 1] <- "Russia"
-imf_data[130, 1] <- "Macedonia"
-
-imf <- imf_data[, c("Real gdp_imf growth (Annual percent change)", "2010")]
-
-
-imf <- imf[-1,]
-colnames(imf) <- c("country", "gdp_imf")
-imf$gdp_imf <- as.numeric(imf$gdp_imf)
-imf$gdp_imf <- round(imf$gdp_imf, 2)
-
-##################
-
-
-
-
+lits_ii <- read.csv("lits_ii.csv")
 #Sample
 
 lits_ii <- lits_ii %>%
@@ -47,22 +31,7 @@ lits_ii_full <- lits_ii
 lits_ii <- lits_ii %>%
   filter(as.character(country_) %in% countries)
 
-imf <- imf %>%
-  mutate(country = trimws(country),
-         country = as.character(country))
-
-imf <- imf %>%
-  filter(as.character(country) %in% countries)
-
 ##################
-
-
-
-lits_ii <- left_join(lits_ii, imf, by = "country")
-unique(lits_ii$country)
-length(unique(lits_ii$country))
-
-unique(lits_ii$gdp_imf)
 
 country_reference <- data.frame(
   country = c("Albania", "Armenia", "Azerbaijan", "Croatia", "Estonia", 
@@ -98,8 +67,30 @@ lits_ii$gov_approval <- recode(lits_ii$q620c,
                                .default = NA_real_   # catch-all for everything else
 )
 
-lits_ii$gov_approval <- ordered(lits_ii$gov_approval)
+lits_ii$gov_approval = factor(lits_ii$gov_approval, ordered = T)
 typeof(lits_ii$gov_approval)
+
+lits_ii$sociotropic_retrospective <- recode(lits_ii$q301a,
+                               "Strongly agree"   = 1,
+                               "Agree"        = 2,
+                               "Neither disagree nor agree"    = 3,
+                               "Disagree"       = 4,
+                               "Strongly disagree"  = 5,
+                               .default = NA_real_   # catch-all for everything else
+)
+
+table(lits_ii$sociotropic_retrospective, useNA = "ifany")
+
+lits_ii$sociotropic_current <- recode(lits_ii$q301g,
+                                       "Strongly agree"   = 1,
+                                       "Agree"        = 2,
+                                       "Neither disagree nor agree"    = 3,
+                                       "Disagree"       = 4,
+                                       "Strongly disagree"  = 5,
+                                       .default = NA_real_   # catch-all for everything else
+)
+
+table(lits_ii$sociotropic_current, useNA = "ifany")
 
 make_binary <- function(x) {
   case_when(
@@ -110,15 +101,15 @@ make_binary <- function(x) {
   )
 }
 
+make_binary_crisis <- function(x) {
+  case_when(
+    x == "-90" ~ NA_real_,
+    grepl("^NOT", x, ignore.case = TRUE) ~ 0,
+    grepl("^[A-Z]", x) ~ 1,
+    TRUE ~ NA_real_
+  )
+}
 
-#
-#make_binary <- function(x) {
-#case_when(
-#  x == "-90" ~ NA_real_,
-# grepl("^NOT", x, ignore.case = TRUE) ~ 0,
-# grepl("^[A-Z]", x) ~ 1,
-# TRUE ~ NA_real_
-#)
 
 
 # Helper function for converting Yes/No/Refused to numeric
@@ -139,12 +130,57 @@ not_stated_function <- function(x) {
   )
 }
 
+
+#Control variables
+
+lits_ii <- lits_ii %>%
+  mutate(
+    # Respondent age (assuming numeric already, otherwise convert)
+    age = case_when(
+      respondentage >= 18 & respondentage <= 24 ~ 1,
+      respondentage >= 25 & respondentage <= 34 ~ 2,
+      respondentage >= 35 & respondentage <= 44 ~ 3,
+      respondentage >= 45 & respondentage <= 54 ~ 4,
+      respondentage >= 55 & respondentage <= 64 ~ 5,
+      respondentage >= 65                         ~ 6,
+      TRUE                                        ~ NA_real_,),
+    age = as.numeric(age),
+    
+    #"A FAIR AMOUNT" "NOT AT ALL"    "A GREAT DEAL"  "JUST A LITTLE" "Refused"       "Don't know"  
+    egotropic = case_when(
+      q801 == "A GREAT DEAL" ~ 3,
+      q801 == "A FAIR AMOUNT" ~ 2,
+      q801 == "JUST A LITTLE" ~ 1,
+      q801 == "NOT AT ALL" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    
+    # Respondent gender: 0 = male, 1 = female
+    female = as.numeric((ifelse(respondentgender == -1, NA, respondentgender))), 
+    education = case_when(
+      q515 == "NO DEGREE / NO EDUCATION"             ~ 1,
+      q515 == "PRIMARY EDUCATION"                    ~ 2,
+      q515 == "LOWER SECONDARY EDUCATION"            ~ 3,
+      q515 == "(UPPER) SECONDARY EDUCATION"          ~ 4,
+      q515 == "POST-SECONDARY NON TERTIARY EDUCATION"~ 5,
+      q515 == "BACHELOR'S DEGREE OR MORE"            ~ 6,
+      q515 == "MASTER'S DEGREE OR PHD"               ~ 7,
+      TRUE                                           ~ NA_real_
+    ),
+    education = as.numeric(education),
+    
+    class = case_when(
+      q227 %in% 1:10 ~ as.numeric(q227),
+      TRUE           ~ NA_real_
+    ),
+    class = as.numeric(class)
+  )
+
 lits_ii <- lits_ii %>%
   mutate(
     # Convert raw items to binary first
-    dont_say_q804 = not_stated_function(q804t_01),
-    dont_know_q804 = make_binary(q804u_97),
-    head_job_loss   = make_binary(q802aa),
+    dont_say_q804   = not_stated_function(q804t_01),
+    dont_know_q804  = make_binary(q804u_97),
     head_job_loss   = make_binary(q802aa),
     other_job_loss  = make_binary(q802ab),
     fam_business    = make_binary(q802ac),
@@ -183,49 +219,35 @@ lits_ii <- lits_ii %>%
     welfare_4 = make_dummy_char(q812_4)
   )
 
-#Control variables
+lits_ii <- lits_ii %>%
+  mutate(
+    across(
+      c(head_job_loss, other_job_loss, fam_business,
+        hrs_reduced, wage_delay, wage_reduction,
+        rem_reduces, fam_returned),
+      ~ case_when(
+        is.na(.x) & egotropic == 0 ~ 0,
+        .x == 1 ~ 1,
+        .x == 0 ~ 0,
+        TRUE ~ NA_real_
+      )
+    )
+  )
+
+table(lits_ii$dont_say_q804, useNA = "ifany")
 
 lits_ii <- lits_ii %>%
   mutate(
-    # Respondent age (assuming numeric already, otherwise convert)
-    age = case_when(
-      respondentage >= 18 & respondentage <= 24 ~ 1,
-      respondentage >= 25 & respondentage <= 34 ~ 2,
-      respondentage >= 35 & respondentage <= 44 ~ 3,
-      respondentage >= 45 & respondentage <= 54 ~ 4,
-      respondentage >= 55 & respondentage <= 64 ~ 5,
-      respondentage >= 65                         ~ 6,
-      TRUE                                        ~ NA_real_,),
-    age = factor(age),
-    
-    #"A FAIR AMOUNT" "NOT AT ALL"    "A GREAT DEAL"  "JUST A LITTLE" "Refused"       "Don't know"  
-    egotropic = case_when(
-      q801 == "A GREAT DEAL" ~ 3,
-      q801 == "A FAIR AMOUNT" ~ 2,
-      q801 == "JUST A LITTLE" ~ 1,
-      q801 == "NOT AT ALL" ~ 0,
-      TRUE ~ NA_real_
-    ),
-    
-    # Respondent gender: 0 = male, 1 = female
-    female = factor(ifelse(respondentgender == -1, NA, respondentgender)), 
-    education = case_when(
-      q515 == "NO DEGREE / NO EDUCATION"             ~ 1,
-      q515 == "PRIMARY EDUCATION"                    ~ 2,
-      q515 == "LOWER SECONDARY EDUCATION"            ~ 3,
-      q515 == "(UPPER) SECONDARY EDUCATION"          ~ 4,
-      q515 == "POST-SECONDARY NON TERTIARY EDUCATION"~ 5,
-      q515 == "BACHELOR'S DEGREE OR MORE"            ~ 6,
-      q515 == "MASTER'S DEGREE OR PHD"               ~ 7,
-      TRUE                                           ~ NA_real_
-    ),
-    education = factor(education, levels = 1:7, ordered = TRUE),
-    
-    class = case_when(
-      q227 %in% 1:10 ~ as.numeric(q227),
-      TRUE           ~ NA_real_
-    ),
-    class = factor(class, levels = 1:10, ordered = TRUE)
+    across(
+      c(second_job, more_hours, new_job, sell_asset, forced_move, further_ed,
+        staples_reduced, doctor_cut, medication_cut, utilities_delayed, utilities_cut, luxury_goods_reduced, alcohol_reduced, car_reduced, vacation_cut, tobacco_cut, uni_postponed, tv_phone_cut),
+      ~ case_when(
+        is.na(.x) & dont_say_q804 == 0 ~ 0,
+        .x == 1 ~ 1,
+        .x == 0 ~ 0,
+        TRUE ~ NA_real_
+      )
+    )
   )
 
 ##show unique value for each variable
@@ -239,8 +261,6 @@ unique(lits_ii$female)
 unique(lits_ii$education)
 unique(lits_ii$class)
 ##################
-
-
 
 
 ##Integrate income_jobs_loss variable
@@ -295,122 +315,105 @@ lits_ii <- lits_ii %>%
       1, 0
     ),
     
-    labour_shocks_agg = if_else(
-      rowSums(across(c(head_job_loss, other_job_loss, fam_business, 
-                       hrs_reduced, wage_delay, wage_reduction)) == 1, na.rm = TRUE) >= 1,
-      1, 0
+    labour_shocks = case_when(
+      # If at least one value is 1, assign 1
+      rowSums(across(c(head_job_loss, other_job_loss, fam_business,
+                       hrs_reduced, wage_reduction)) == 1, na.rm = TRUE) >= 1 ~ 1,
+      # If all values are 0 OR egotropic is 0, assign 0
+      rowSums(across(c(head_job_loss, other_job_loss, fam_business,
+                       hrs_reduced, wage_reduction)), na.rm = TRUE) == 0 & 
+        rowSums(is.na(across(c(head_job_loss, other_job_loss, fam_business,
+                               hrs_reduced, wage_reduction)))) == 0 |
+        egotropic == 0 ~ 0,
+      # Otherwise assign NA
+      TRUE ~ NA_real_
     ),
     
-    labour_reactions_agg = if_else(
+    labour_reactions = if_else(
       rowSums(across(c(second_job, more_hours, new_job, further_ed)) == 1, na.rm = TRUE) >= 1,
       1, 0
     ),
     
-    income_job_loss = if_else(
+    income_job_loss = case_when(
+      # If at least one value is 1, assign 1
       rowSums(across(c(head_job_loss, other_job_loss, fam_business,
                        hrs_reduced, wage_delay, wage_reduction,
-                       rem_reduces, fam_returned)) == 1, na.rm = TRUE) >= 1,
-      1, 0
-    ),
-    
-    income_job_loss_na_min_1 = if_else(
+                       rem_reduces, fam_returned)) == 1, na.rm = TRUE) >= 1 ~ 1,
+      # If all values are 0 OR egotropic is 0, assign 0
       rowSums(across(c(head_job_loss, other_job_loss, fam_business,
                        hrs_reduced, wage_delay, wage_reduction,
-                       rem_reduces, fam_returned)) == 1, na.rm = TRUE) >= 1,
-      1, 0
+                       rem_reduces, fam_returned)), na.rm = TRUE) == 0 & 
+        rowSums(is.na(across(c(head_job_loss, other_job_loss, fam_business,
+                               hrs_reduced, wage_delay, wage_reduction,
+                               rem_reduces, fam_returned)))) == 0 |
+        egotropic == 0 ~ 0,
+      # Otherwise assign NA
+      TRUE ~ NA_real_
     )
   )
+
+
 ##################
+    
 
-
-aggregate_vars <- c(
-  "doctor_med_cut",           # from q804j, q804l
-  "utilities_cut",            # from q804n, q804o
-  "welfare_applied",          # from welfare_1, welfare_2, welfare_3, welfare_4
-  "borrow_money",            # from q805
-  "active_coping",            # from second_job, more_hours, new_job, sell_asset, forced_move, further_ed
-  "essentials_reduced",          # from staples_reduced (original), doctor_med_cut, utilities_cut
-  "luxury_reduced",           # from luxury_reduced (original), alcohol_reduced, car_reduced, vacation_cut, tobacco_cut, uni_postponed, tv_phone_cut
-  "passive_coping",           # from staples_reduced, luxury_reduced
-  "staples_reduced_and_luxury", # from staples_reduced, luxury_reduced
-  "labour_shocks_agg",        # from head_job_loss, other_job_loss, fam_business, hrs_reduced, wage_delay, wage_reduction
-  "labour_reactions_agg",     # from second_job, more_hours, new_job, further_ed
-  "income_job_loss"           # from head_job_loss, other_job_loss, fam_business, hrs_reduced, wage_delay, wage_reduction, rem_reduces, fam_returned
-)
-
-# INDIVIDUAL VARIABLES (created from single survey questions):
-individual_vars <- c(
-  # Job/Labour variables
-  "egotropic", #q801
-  "head_job_loss",     # q802aa
-  "other_job_loss",    # q802ab
-  "fam_business",      # q802ac
-  "hrs_reduced",       # q802ad
-  "wage_delay",        # q802ae
-  "wage_reduction",    # q802af
-  "rem_reduces",       # q802ag
-  "fam_returned",      # q802ah
-  "second_job",        # q802ai
-  "more_hours",        # q802aj
-  "new_job",           # q802ak
-  
-  # Coping strategies
-  "sell_asset",        # q804r
-  "forced_move",       # q804s
-  "further_ed",        # q804h
-  "staples_reduced",   # q804a (original, gets combined into aggregate)
-  "luxury_reduced",    # q804b (original, gets combined into aggregate)
-  "alcohol_reduced",   # q804c
-  "car_reduced",       # q804d
-  "vacation_cut",      # q804e
-  "tobacco_cut",       # q804f
-  "uni_postponed",     # q804g
-  "tv_phone_cut",      # q804p
-  
-  # Financial assistance
-  "borrow_money",      # q805
-  "welfare_1",         # q812_1
-  "welfare_2",         # q812_2
-  "welfare_3",         # q812_3
-  "welfare_4"          # q812_4
-)
-
-#control_vars 
+##################
 
 control_vars <- c("age", "female", "education", "class")
+
+aggregate_vars <- c("doctor_med_cut", "utilities", "welfare_applied", "borrow_money",
+                    "active_coping", "essentials_reduced", "luxury_reduced",
+                    "passive_coping", "essentials_and_luxury", "labour_shocks",
+                    "labour_reactions", "income_job_loss")
+
+individual_vars <- c("egotropic", "head_job_loss", "other_job_loss", "fam_business",
+                     "hrs_reduced", "wage_delay", "wage_reduction", "rem_reduces",
+                     "fam_returned", "second_job", "more_hours", "new_job", "sell_asset",
+                     "forced_move", "further_ed", "staples_reduced", "luxury_reduced",
+                     "alcohol_reduced", "car_reduced", "vacation_cut", "tobacco_cut",
+                     "uni_postponed", "tv_phone_cut", "borrow_money", "welfare_1",
+                     "welfare_2", "welfare_3", "welfare_4")
+
+
+singer_vars <- c("gov_approval", "country", "gdp", "polity_score_2010", "income_job_loss", "active_coping", "essentials_reduced", "luxury_reduced", "essentials_and_luxury", "borrow_money", "welfare_applied", "age", "female", "education", "class")
+
+labour_vars <- c("labour_shocks", "labour_reactions", "head_job_loss", "other_job_loss", "fam_business",
+                     "hrs_reduced", "wage_delay", "wage_reduction", "rem_reduces",
+                     "fam_returned", "egotropic", "second_job", "more_hours", "new_job", "further_ed")
+labour_shock_vars <- c("head_job_loss", "other_job_loss", "fam_business",
+                       "hrs_reduced")
+labour_behaviour_vars <- c("second_job", "more_hours", "new_job", "further_ed")
+
+income_shock_vars <- c("wage_delay", "wage_reduction", "rem_reduces",
+                       "fam_returned")
+#control_vars 
+
+
+########
+
+df_singer <- lits_ii %>%
+  select(all_of(singer_vars), labour_shocks, labour_reactions) %>%
+  na.omit()
+
+df_micro <- lits_ii %>%
+  select(all_of(singer_vars), labour_shocks, labour_reactions, labour_shock_vars, labour_behaviour_vars, income_shock_vars) %>%
+  na.omit()
+
+###robustness check when dropping egotropic == 0
+df_no_ego <- lits_ii %>%
+  select(all_of(singer_vars), egotropic) %>%
+  filter(egotropic != 0) %>%
+  na.omit()
+
+##what about sociotropic? and egotropic
+df_soc_ego <- lits_ii %>%
+  select(all_of(singer_vars), labour_shocks, labour_reactions, egotropic, sociotropic_current, sociotropic_retrospective) %>%
+  na.omit()
+
 ##################
 
-
-#almost perfect part 3
-#treat -90 and -1 differently 
-
-df_job_loss <- lits_ii %>%
-  select(country, egotropic, gov_approval, head_job_loss, other_job_loss, fam_business,
-         hrs_reduced, wage_delay, wage_reduction,
-         rem_reduces, fam_returned, all_of(control_vars), dont_say_q804, dont_know_q804, income_job_loss, passive_coping, active_coping, luxury_reduced, essentials_reduced, borrow_money, welfare_applied, gdp, polity_score_2010, labour_reactions_agg, labour_shocks_agg)
-
-
-df_job_loss <- lits_ii %>%
-  select(country, gdp, polity_score_2010, gov_approval, all_of(aggregate_vars), all_of(individual_vars), all_of(control_vars), dont_say_q804, dont_know_q804)
-
-
-#drop if dep and ind vars are NA
-df_analysis <- df_job_loss %>%
-  mutate(head_job_loss = ifelse(egotropic == 0, 1, head_job_loss)) %>% #except when respondent states crisis has had no impact, in which case we assume everything is 0
-  filter(!is.na(gov_approval),
-         !is.na(egotropic),
-         !is.na(head_job_loss)) 
-
-#drop if controls are NA
-df_analysis <- df_analysis %>%
-  filter(!is.na(class), 
-         !is.na(female), 
-         !is.na(age), 
-         !is.na(education))
-
-df_analysis <- df_analysis %>%
-  filter((income_job_loss == 0 | egotropic == 0 | dont_know_q804 == 0 | passive_coping == 1 | active_coping == 1 | luxury_reduced == 1 | essentials_reduced == 1 | borrow_money == 1 | welfare_applied == 1))
-
-save(df_analysis, file = "lits_analysis.RData")
-
-##################
+#save datasets as Rdata
+save(lits_ii, file = "lits_ii_cleaned.Rdata")
+save(df_singer, file = "df_singer.Rdata")
+save(df_micro, file = "df_micro.Rdata")
+save(df_no_ego, file = "df_no_ego.Rdata")
+save(df_soc_ego, file = "df_soc_ego.Rdata")
