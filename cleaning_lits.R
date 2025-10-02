@@ -45,7 +45,6 @@ country_reference <- data.frame(
 )
 
 
-# Then merge with your analysis data
 lits_ii <- lits_ii %>%
   left_join(country_reference, by = "country")
 
@@ -53,9 +52,6 @@ lits_ii <- lits_ii %>%
 
 
 ###Recode Variables
-
-#Following instructions from appendix 
-#Government Approval 1 to 5. Are don't knows dropped? I assume so.
 
 lits_ii$gov_approval <- recode(lits_ii$q620c,
                                "VERY BAD"   = 1,
@@ -263,15 +259,10 @@ unique(lits_ii$class)
 ##################
 
 
-##Integrate income_jobs_loss variable
-
-
 # Rule: 1 if any are 1, 0 if none are 1 (ignoring NAs)
 lits_ii <- lits_ii %>%
   mutate(
-    
-    # Intermediate variables - loose approach
-    doctor_med_cut = if_else(
+        doctor_med_cut = if_else(
       rowSums(across(c(doctor_cut, medication_cut)) == 1, na.rm = TRUE) >= 1,
       1, 0
     ),
@@ -281,13 +272,11 @@ lits_ii <- lits_ii %>%
       1, 0
     ),
     
-    # Welfare applied - loose approach
     welfare_applied = if_else(
       rowSums(across(c(welfare_1, welfare_2, welfare_3, welfare_4)) == 1, na.rm = TRUE) >= 1,
       1, 0
     ),
     
-    # Aggregate variables - loose approach
     active_coping = if_else(
       rowSums(across(c(second_job, more_hours, new_job, sell_asset, forced_move, further_ed)) == 1, na.rm = TRUE) >= 1,
       1, 0
@@ -304,7 +293,6 @@ lits_ii <- lits_ii %>%
       1, 0
     ),
     
-    # Final composite variables - loose approach
     passive_coping = if_else(
       rowSums(across(c(essentials_reduced, luxury_reduced)) == 1, na.rm = TRUE) >= 1,
       1, 0
